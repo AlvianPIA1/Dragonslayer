@@ -1,0 +1,183 @@
+
+-- STEAL AN EGG ULTIMATE | SERVER
+-- For your own Roblox Studio game
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local root = ReplicatedStorage:FindFirstChild("StealAnEgg")
+if not root then
+    root = Instance.new("Folder")
+    root.Name = "StealAnEgg"
+    root.Parent = ReplicatedStorage
+end
+
+local remotes = root:FindFirstChild("Remotes")
+if not remotes then
+    remotes = Instance.new("Folder")
+    remotes.Name = "Remotes"
+    remotes.Parent = root
+end
+
+local function getRemote(name)
+    local r = remotes:FindFirstChild(name)
+    if not r then
+        r = Instance.new("RemoteEvent")
+        r.Name = name
+        r.Parent = remotes
+    end
+    return r
+end
+
+local FarmRemote = getRemote("ToggleAutoFarm")
+local TreadmillRemote = getRemote("ToggleTreadmill")
+
+local EggsFolder = workspace:WaitForChild("Eggs")
+local Treadmill = workspace:WaitForChild("Treadmill")
+
+local farmEnabled = {}
+local treadmillEnabled = {}
+local collected = {}
+
+local FARM_DISTANCE = 7
+local FARM_DELAY = 0.75
+local TREADMILL_DISTANCE = 10
+local TREADMILL_DELAY = 1
+
+local function setupPlayer(player)
+    local stats = player:FindFirstChild("leaderstats")
+    if not stats then
+        stats = Instance.new("Folder")
+        stats.Name = "leaderstats"
+        stats.Parent = player
+    end
+
+    for _, name in ipairs({"Eggs", "Speed"}) do
+        if not stats:FindFirstChild(name) then
+            local value = Instance.new("IntValue")
+            value.Name = name
+            value.Value = 0
+            value.Parent = stats
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(setupPlayer)
+for _, player in ipairs(Players:GetPlayers()) do
+    setupPlayer(player)
+end
+
+local function getRoot(player)
+    local character = player.Character
+    return character and character:FindFirstChild("HumanoidRootPart")
+end
+
+local function getPosition(object)
+    if object:IsA("BasePart") then
+        return object.Position
+    elseif object:IsA("Model") then
+        return object:GetPivot().Position
+    end
+    return nil
+end
+
+local function collectEgg(player, egg)
+    if not egg or not egg.Parent or collected[egg] then
+        return
+    end
+
+    local characterRoot = getRoot(player)
+    local position = getPosition(egg)
+    if not characterRoot or not position then
+        return
+    end
+
+    if (characterRoot.Position - position).Magnitude > FARM_DISTANCE then
+        return
+    end
+
+    collected[egg] = true
+
+    local stats = player:FindFirstChild("leaderstats")
+    local eggs = stats and stats:FindFirstChild("Eggs")
+    if eggs then
+        eggs.Value += 1
+    end
+
+    task.delay(3, function()
+        collected[egg] = nil
+    end)
+end
+
+FarmRemote.OnServerEvent:Connect(function(player, enabled)
+    if typeof(enabled) ~= "boolean" then return end
+    if farmEnabled[player] == enabled then return end
+
+    farmEnabled[player] = enabled
+    if not enabled then return end
+
+    task.spawn(function()
+        while farmEnabled[player] and player.Parent do
+            local rootPart = getRoot(player)
+
+            if rootPart then
+                local nearest, nearestDistance
+                nearestDistance = math.huge
+
+                for _, egg in ipairs(EggsFolder:GetChildren()) do
+                    if not collected[egg] then
+                        local pos = getPosition(egg)
+                        if pos then
+                            local dist = (rootPart.Position - pos).Magnitude
+                            if dist < nearestDistance then
+                                nearest = egg
+                                nearestDistance = dist
+                            end
+                        end
+                    end
+                end
+
+                if nearest and nearestDistance <= FARM_DISTANCE then
+                    collectEgg(player, nearest)
+                end
+            end
+
+            task.wait(FARM_DELAY)
+        end
+    end)
+end)
+
+TreadmillRemote.OnServerEvent:Connect(function(player, enabled)
+    if typeof(enabled) ~= "boolean" then return end
+    if treadmillEnabled[player] == enabled then return end
+
+    treadmillEnabled[player] = enabled
+    if not enabled then return end
+
+    task.spawn(function()
+        while treadmillEnabled[player] and player.Parent do
+            local rootPart = getRoot(player)
+            local pos = getPosition(Treadmill)
+
+            if rootPart and pos
+                and (rootPart.Position - pos).Magnitude <= TREADMILL_DISTANCE then
+
+                local stats = player:FindFirstChild("leaderstats")
+                local speed = stats and stats:FindFirstChild("Speed")
+
+                if speed then
+                    speed.Value += 1
+                end
+            end
+
+            task.wait(TREADMILL_DELAY)
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    farmEnabled[player] = nil
+    treadmillEnabled[player] = nil
+end)
+
+print("🥚 Steal An Egg Ultimate Server ready!")
